@@ -1,3 +1,4 @@
+# SGE - Sistema de Gestão de Equipamentos (AC1)
 import sqlite3
 from flask import Flask, jsonify, request
 
