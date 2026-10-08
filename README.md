@@ -1,4 +1,3 @@
-# sistema-gestao-equipamentos
 # SGE - Sistema de Gestão de Equipamentos (AC2)
 
 Repositório desenvolvido no âmbito acadêmico, evoluindo a arquitetura em camadas da AC1 para uma aplicação completa de gestão, controle operacional e auditoria de ativos de hardware.
@@ -26,6 +25,11 @@ Repositório desenvolvido no âmbito acadêmico, evoluindo a arquitetura em cama
 
 ## ⚙️ Como Executar
 
-1. **Executar o Servidor Back-end (Flask):**
-   ```bash
-   python app.py
+Abra dois terminais na pasta do projeto e execute os comandos:
+
+```bash
+# 1. Executar o Servidor Back-end (Flask)
+python app.py
+
+# 2. Executar a Interface Front-end (Streamlit)
+streamlit run sistema.py
