@@ -126,3 +126,4 @@ elif st.session_state.pagina == "📋 Histórico e Filtros":
             st.error("Erro ao carregar o histórico.")
     except requests.exceptions.ConnectionError:
         st.error("Erro de conexão com a API.")
+        

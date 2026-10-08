@@ -29,3 +29,4 @@ Repositório desenvolvido no âmbito acadêmico, evoluindo a arquitetura em cama
 1. **Executar o Servidor Back-end (Flask):**
    ```bash
    python app.py
+   
