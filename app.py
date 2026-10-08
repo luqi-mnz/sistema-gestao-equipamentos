@@ -14,17 +14,16 @@ def inicializar_banco():
             status TEXT NOT NULL
         )
     ''')
-    
-    cursor.execute('SELECT COUNT(*) FROM equipamentos')
-    if cursor.fetchone()[0] == 0:
-        iniciais = [
-            ('Terminal POS', 'POS-001', 'Ativo'),
-            ('Terminal POS', 'POS-002', 'Em Manutenção'),
-            ('Pinpad', 'PIN-101', 'Ativo'),
-            ('Tablet', 'TAB-909', 'Em Estoque')
-        ]
-        cursor.executemany('INSERT OR IGNORE INTO equipamentos (tipo, numero_serie, status) VALUES (?, ?, ?)', iniciais)
-        conexao.commit()
+    cursor.execute('''
+        CREATE TABLE IF NOT EXISTS historico_movimentacoes (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            numero_serie TEXT NOT NULL,
+            status_anterior TEXT,
+            status_novo TEXT NOT NULL,
+            data_hora DATETIME DEFAULT CURRENT_TIMESTAMP
+        )
+    ''')
+    conexao.commit()
     conexao.close()
 
 @app.route('/api/resumo', methods=['GET'])
@@ -78,15 +77,48 @@ def movimentar_equipamento():
     
     conexao = sqlite3.connect('sge_banco.db')
     cursor = conexao.cursor()
+    cursor.execute("SELECT status FROM equipamentos WHERE numero_serie = ?", (numero_serie,))
+    resultado = cursor.fetchone()
+    
+    if not resultado:
+        conexao.close()
+        return jsonify({"mensagem": "Equipamento não encontrado. Verifique o Número de Série."}), 404
+        
+    status_anterior = resultado[0]
+    
+    if status_anterior == status_novo:
+        conexao.close()
+        return jsonify({"mensagem": f"Atenção: O equipamento já se encontra com o status '{status_novo}'."}), 400
+    
     cursor.execute('UPDATE equipamentos SET status = ? WHERE numero_serie = ?', (status_novo, numero_serie))
-    linhas = cursor.rowcount
+    cursor.execute("""
+        INSERT INTO historico_movimentacoes (numero_serie, status_anterior, status_novo, data_hora)
+        VALUES (?, ?, ?, datetime('now', 'localtime'))
+    """, (numero_serie, status_anterior, status_novo))
+    
     conexao.commit()
     conexao.close()
     
-    if linhas > 0:
-        return jsonify({"mensagem": "Status atualizado com sucesso!"}), 200
-    else:
-        return jsonify({"mensagem": "Equipamento não encontrado. Verifique o Número de Série."}), 404
+    return jsonify({"mensagem": "Status atualizado e histórico registrado com sucesso!"}), 200
+
+@app.route('/api/historico', methods=['GET'])
+def listar_historico():
+    conexao = sqlite3.connect('sge_banco.db')
+    cursor = conexao.cursor()
+    cursor.execute("SELECT numero_serie, status_anterior, status_novo, data_hora FROM historico_movimentacoes ORDER BY id DESC")
+    historico = cursor.fetchall()
+    conexao.close()
+    
+    lista_historico = []
+    for linha in historico:
+        lista_historico.append({
+            'numero_serie': linha[0],
+            'status_anterior': linha[1],
+            'status_novo': linha[2],
+            'data_hora': linha[3]
+        })
+        
+    return jsonify(lista_historico), 200
 
 if __name__ == '__main__':
     inicializar_banco()
