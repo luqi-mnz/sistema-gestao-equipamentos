@@ -1,4 +1,5 @@
 import sqlite3
+import re
 from flask import Flask, jsonify, request
 
 app = Flask(__name__)
@@ -20,6 +21,7 @@ def inicializar_banco():
             numero_serie TEXT NOT NULL,
             status_anterior TEXT,
             status_novo TEXT NOT NULL,
+            motivo TEXT NOT NULL,
             data_hora DATETIME DEFAULT CURRENT_TIMESTAMP
         )
     ''')
@@ -30,7 +32,7 @@ def inicializar_banco():
 def resumo_inventario():
     conexao = sqlite3.connect('sge_banco.db')
     cursor = conexao.cursor()
-    cursor.execute('SELECT tipo, status FROM equipamentos')
+    cursor.execute('SELECT tipo, status, numero_serie FROM equipamentos')
     equipamentos_bd = cursor.fetchall()
     conexao.close()
     
@@ -41,7 +43,7 @@ def resumo_inventario():
         "Em Estoque": [0, 0, 0]
     }
     
-    for tipo, status in equipamentos_bd:
+    for tipo, status, _ in equipamentos_bd:
         if tipo in resumo["Equipamento"]:
             idx = resumo["Equipamento"].index(tipo)
             if status == "Ativo": resumo["Ativos"][idx] += 1
@@ -50,13 +52,43 @@ def resumo_inventario():
             
     return jsonify(resumo)
 
+@app.route('/api/equipamentos', methods=['GET'])
+def listar_equipamentos():
+    conexao = sqlite3.connect('sge_banco.db')
+    cursor = conexao.cursor()
+    cursor.execute("SELECT tipo, numero_serie, status FROM equipamentos")
+    equipamentos = cursor.fetchall()
+    conexao.close()
+    
+    lista = []
+    for linha in equipamentos:
+        lista.append({
+            'tipo': linha[0],
+            'numero_serie': linha[1],
+            'status': linha[2]
+        })
+        
+    return jsonify(lista), 200
+
 @app.route('/api/cadastrar', methods=['POST'])
 def cadastrar_equipamento():
     dados = request.get_json()
     tipo = dados.get('tipo')
-    numero_serie = dados.get('numero_serie')
+    numero_serie = dados.get('numero_serie', '').upper()
     status = dados.get('status')
     
+    if tipo == "Terminal POS":
+        if not re.match(r'^(541|542)-\d{3}-\d{3}$', numero_serie):
+            return jsonify({"mensagem": "Erro: S/N de POS deve ter o formato XXX-XXX-XXX e iniciar com 541 ou 542."}), 400
+            
+    elif tipo == "Pinpad":
+        if not re.match(r'^(541|542)\d{6}$', numero_serie):
+            return jsonify({"mensagem": "Erro: S/N de Pinpad deve ter exatos 9 números e iniciar com 541 ou 542."}), 400
+            
+    elif tipo == "Tablet":
+        if not re.match(r'^[A-Z0-9]{11}$', numero_serie):
+            return jsonify({"mensagem": "Erro: S/N de Tablet deve conter exatamente 11 caracteres alfanuméricos."}), 400
+
     conexao = sqlite3.connect('sge_banco.db')
     cursor = conexao.cursor()
     try:
@@ -65,16 +97,21 @@ def cadastrar_equipamento():
         retorno = ({"mensagem": "Cadastrado com sucesso!"}, 201)
     except sqlite3.IntegrityError:
         retorno = ({"mensagem": "Erro: Esse Número de Série já existe no sistema."}, 400)
-    conexao.close()
+    finally:
+        conexao.close()
     
     return jsonify(retorno[0]), retorno[1]
 
 @app.route('/api/movimentar', methods=['PUT'])
 def movimentar_equipamento():
     dados = request.get_json()
-    numero_serie = dados.get('numero_serie')
+    numero_serie = dados.get('numero_serie', '').upper()
     status_novo = dados.get('status')
+    motivo = dados.get('motivo')
     
+    if not motivo or len(motivo.strip()) < 5:
+        return jsonify({"mensagem": "Erro: É obrigatório informar um motivo válido (mínimo 5 caracteres) para a movimentação."}), 400
+
     conexao = sqlite3.connect('sge_banco.db')
     cursor = conexao.cursor()
     cursor.execute("SELECT status FROM equipamentos WHERE numero_serie = ?", (numero_serie,))
@@ -92,9 +129,9 @@ def movimentar_equipamento():
     
     cursor.execute('UPDATE equipamentos SET status = ? WHERE numero_serie = ?', (status_novo, numero_serie))
     cursor.execute("""
-        INSERT INTO historico_movimentacoes (numero_serie, status_anterior, status_novo, data_hora)
-        VALUES (?, ?, ?, datetime('now', 'localtime'))
-    """, (numero_serie, status_anterior, status_novo))
+        INSERT INTO historico_movimentacoes (numero_serie, status_anterior, status_novo, motivo, data_hora)
+        VALUES (?, ?, ?, ?, datetime('now', 'localtime'))
+    """, (numero_serie, status_anterior, status_novo, motivo))
     
     conexao.commit()
     conexao.close()
@@ -105,7 +142,7 @@ def movimentar_equipamento():
 def listar_historico():
     conexao = sqlite3.connect('sge_banco.db')
     cursor = conexao.cursor()
-    cursor.execute("SELECT numero_serie, status_anterior, status_novo, data_hora FROM historico_movimentacoes ORDER BY id DESC")
+    cursor.execute("SELECT numero_serie, status_anterior, status_novo, motivo, data_hora FROM historico_movimentacoes ORDER BY id DESC")
     historico = cursor.fetchall()
     conexao.close()
     
@@ -115,7 +152,8 @@ def listar_historico():
             'numero_serie': linha[0],
             'status_anterior': linha[1],
             'status_novo': linha[2],
-            'data_hora': linha[3]
+            'motivo': linha[3],
+            'data_hora': linha[4]
         })
         
     return jsonify(lista_historico), 200

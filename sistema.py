@@ -47,6 +47,19 @@ if st.session_state.pagina == "📊 Painel de controle":
             with col_tabela:
                 st.subheader("Tabela de Dados")
                 st.dataframe(df_resumo, use_container_width=True, hide_index=True)
+                
+                resposta_equipamentos = requests.get("http://127.0.0.1:5000/api/equipamentos")
+                if resposta_equipamentos.status_code == 200:
+                    df_completo = pd.DataFrame(resposta_equipamentos.json())
+                    df_completo = df_completo[["tipo", "numero_serie", "status"]]
+                    
+                    csv_inventario = df_completo.to_csv(index=False).encode('utf-8')
+                    st.download_button(
+                        label="📥 Exportar Inventário Completo para CSV",
+                        data=csv_inventario,
+                        file_name="inventario_completo.csv",
+                        mime="text/csv",
+                    )
         else:
             st.error("Erro ao carregar o resumo.")
     except requests.exceptions.ConnectionError:
@@ -63,12 +76,18 @@ elif st.session_state.pagina == "🔄 Registro e Movimentação":
         tipo = col1.selectbox("Tipo de Hardware", ["Terminal POS", "Pinpad", "Tablet"])
         status = col2.selectbox("Status de Entrada", ["Ativo", "Em Manutenção", "Em Estoque"])
         
+        if tipo == "Terminal POS":
+            st.info("Formato POS: XXX-XXX-XXX (Iniciando com 541 ou 542. Ex: 541-123-456)")
+        elif tipo == "Pinpad":
+            st.info("Formato Pinpad: 9 números corridos (Iniciando com 541 ou 542. Ex: 542123456)")
+        elif tipo == "Tablet":
+            st.info("Formato Tablet: 11 caracteres alfanuméricos. Ex: RXGL304ZLVR")
+
         sn = st.text_input("Número de Série (S/N)")
-        obs = st.text_area("Observações")
         
         if st.button("Salvar no Banco de Dados", type="primary"):
             if sn:
-                dados_cadastro = {"tipo": tipo, "numero_serie": sn, "status": status}
+                dados_cadastro = {"tipo": tipo, "numero_serie": sn.upper(), "status": status}
                 try:
                     resposta = requests.post("http://127.0.0.1:5000/api/cadastrar", json=dados_cadastro)
                     if resposta.status_code == 201:
@@ -78,15 +97,16 @@ elif st.session_state.pagina == "🔄 Registro e Movimentação":
                 except requests.exceptions.ConnectionError:
                     st.error("Erro de conexão com a API.")
             else:
-                st.warning("Preencha o Número de Série.")
+                st.warning("Preencha o Número de Série antes de salvar.")
                 
     elif operacao == "Atualizar Status do Equipamento EXISTENTE":
         sn_mov = st.text_input("Número de Série (S/N) para Movimentar")
-        novo_status = st.selectbox("Novo Status", ["Ativo", "Em Manutenção", "Em Estoque"])
+        novo_status = st.selectbox("Novo Status", ["Ativo", "Em Manutenção", "Em Estoque", "Sucateado/Baixado"])
+        motivo = st.text_area("Motivo/Observação (Obrigatório)", placeholder="Ex: Equipamento enviado para manutenção devido à tela quebrada.")
         
         if st.button("Atualizar no Banco de Dados", type="primary"):
-            if sn_mov:
-                dados_mov = {"numero_serie": sn_mov, "status": novo_status}
+            if sn_mov and motivo:
+                dados_mov = {"numero_serie": sn_mov.upper(), "status": novo_status, "motivo": motivo}
                 try:
                     resposta = requests.put("http://127.0.0.1:5000/api/movimentar", json=dados_mov)
                     if resposta.status_code == 200:
@@ -96,7 +116,7 @@ elif st.session_state.pagina == "🔄 Registro e Movimentação":
                 except requests.exceptions.ConnectionError:
                     st.error("Erro de conexão com a API.")
             else:
-                st.warning("Preencha o Número de Série.")
+                st.warning("O Número de Série e o Motivo da movimentação são campos obrigatórios.")
 
 elif st.session_state.pagina == "📋 Histórico e Filtros":
     st.title("📋 Histórico e Filtros")
@@ -111,17 +131,25 @@ elif st.session_state.pagina == "📋 Histórico e Filtros":
                 
                 col1, col2 = st.columns(2)
                 busca_sn = col1.text_input("Buscar por Número de Série")
-                filtro_status = col2.selectbox("Filtrar por Novo Status", ["Todos", "Ativo", "Em Manutenção", "Em Estoque"])
+                filtro_status = col2.selectbox("Filtrar por Novo Status", ["Todos", "Ativo", "Em Manutenção", "Em Estoque", "Sucateado/Baixado"])
                 
                 if busca_sn:
-                    df_historico = df_historico[df_historico["numero_serie"].str.contains(busca_sn, case=False)]
+                    df_historico = df_historico[df_historico["numero_serie"].str.contains(busca_sn.upper(), case=False)]
                 
                 if filtro_status != "Todos":
                     df_historico = df_historico[df_historico["status_novo"] == filtro_status]
                     
                 st.dataframe(df_historico, use_container_width=True, hide_index=True)
+                
+                csv_historico = df_historico.to_csv(index=False).encode('utf-8')
+                st.download_button(
+                    label="📥 Exportar Histórico para CSV",
+                    data=csv_historico,
+                    file_name="historico_movimentacoes.csv",
+                    mime="text/csv",
+                )
             else:
-                st.info("Nenhuma movimentação registada no histórico.")
+                st.info("Nenhuma movimentação registrada no histórico.")
         else:
             st.error("Erro ao carregar o histórico.")
     except requests.exceptions.ConnectionError:
